@@ -61,14 +61,8 @@ file(MAKE_DIRECTORY "${_fossl_work_dir}")
 file(COPY "${CMAKE_CURRENT_LIST_DIR}/findopensslfeatures.c"
   DESTINATION "${_fossl_work_dir}"
 )
-# As it's short enough let's keep it here.
-# Reuse OPENSSL parameters from the upstream project
-# otherwise  there is a good chance to find another instance of openssl
-# We assume that OpenSSL root is one level up openssl include directory
-# This does not look as a good solution, however it is the only one that
-# works with all Windows configuration options
 
-message(STATUS "Using OpenSSL root directory at ${OPENSSL_INCLUDE_DIR}/..")
+message(STATUS "Using OpenSSL root directory at ${OPENSSL_ROOT_DIR}")
 
 file(WRITE "${_fossl_work_dir}/CMakeLists.txt"
 "cmake_minimum_required(VERSION 3.18)\n\
@@ -83,14 +77,24 @@ if (OpenSSL::applink)\n\
 endif(OpenSSL::applink)\n"
 )
 
-set(MKF ${MKF} "-DCMAKE_BUILD_TYPE=Release" "-DOPENSSL_ROOT_DIR=${OPENSSL_INCLUDE_DIR}/..")
+set(MKF ${MKF}
+  "-DCMAKE_BUILD_TYPE=Release"
+  "-DOPENSSL_ROOT_DIR=${OPENSSL_ROOT_DIR}"
+  "-DOPENSSL_INCLUDE_DIR=${OPENSSL_INCLUDE_DIR}"
+  "-DOPENSSL_CRYPTO_LIBRARY=${OPENSSL_CRYPTO_LIBRARY}"
+  "-DOPENSSL_SSL_LIBRARY=${OPENSSL_SSL_LIBRARY}"
+)
 
 if(CMAKE_PREFIX_PATH)
   set(MKF ${MKF} "-DCMAKE_PREFIX_PATH=${CMAKE_PREFIX_PATH}")
 endif(CMAKE_PREFIX_PATH)
 
 if(CMAKE_TOOLCHAIN_FILE)
-  set(MKF ${MKF} "-DCMAKE_TOOLCHAIN_FILE=${CMAKE_TOOLCHAIN_FILE}")
+  set(MKF ${MKF}
+    "-DCMAKE_TOOLCHAIN_FILE=${CMAKE_TOOLCHAIN_FILE}"
+    "-DANDROID_ABI=${ANDROID_ABI}"
+    "-DANDROID_PLATFORM=${ANDROID_PLATFORM}"
+  )
 endif(CMAKE_TOOLCHAIN_FILE)
 
 if(CMAKE_GENERATOR_PLATFORM)
@@ -101,63 +105,159 @@ if(CMAKE_GENERATOR_TOOLSET)
   set(MKF ${MKF} "-T" "${CMAKE_GENERATOR_TOOLSET}")
 endif(CMAKE_GENERATOR_TOOLSET)
 
-execute_process(
-  COMMAND "${CMAKE_COMMAND}" "-Bbuild" ${MKF} "."
-  WORKING_DIRECTORY "${_fossl_work_dir}"
-  OUTPUT_VARIABLE output
-  ERROR_VARIABLE error
-  RESULT_VARIABLE result
-  COMMAND_ECHO STDOUT
-  ECHO_OUTPUT_VARIABLE
-  ECHO_ERROR_VARIABLE
-)
+if(CMAKE_CROSSCOMPILING)
+  message(STATUS "Cross-compiling: skipping runtime OpenSSL feature probe")
 
-if (NOT ${result} EQUAL 0)
-  message(FATAL_ERROR "Error configuring findopensslfeatures")
-endif()
-
-execute_process(
-  COMMAND "${CMAKE_COMMAND}" "--build" "build" --config "Release"
-  WORKING_DIRECTORY "${_fossl_work_dir}"
-  OUTPUT_VARIABLE output
-  ERROR_VARIABLE error
-  RESULT_VARIABLE result
-  COMMAND_ECHO STDOUT
-  ECHO_OUTPUT_VARIABLE
-  ECHO_ERROR_VARIABLE
-)
-
-if (NOT ${result} EQUAL 0)
-  message(FATAL_ERROR "Error building findopensslfeatures")
-endif()
-
-set(OPENSSL_SUPPORTED_FEATURES "")
-if(WIN32 AND NOT MINGW)
-  set(FOF "build/Release/findopensslfeatures")
-else(WIN32 AND NOT MINGW)
-  set(FOF "build/findopensslfeatures")
-endif(WIN32 AND NOT MINGW)
-
-foreach(feature "hashes" "ciphers" "curves" "publickey" "providers")
-  execute_process(
-    COMMAND "${FOF}" "${feature}"
-    WORKING_DIRECTORY "${_fossl_work_dir}"
-    OUTPUT_VARIABLE feature_val
-    ERROR_VARIABLE error
-    RESULT_VARIABLE result
+  set(OPENSSL_SUPPORTED_HASHES
+    SHA1
+    SHA224
+    SHA256
+    SHA384
+    SHA512
+    SHA3-256
+    SHA3-384
+    SHA3-512
+    RIPEMD160
+    MD5
   )
 
-  if(NOT ${result} EQUAL 0)
-    message(FATAL_ERROR "Error getting supported OpenSSL ${feature}: ${result}\n${error}")
+  set(OPENSSL_SUPPORTED_CIPHERS
+    AES-128
+    AES-192
+    AES-256
+    AES-128-CFB
+    AES-192-CFB
+    AES-256-CFB
+    AES-128-CBC
+    AES-192-CBC
+    AES-256-CBC
+    AES-128-ECB
+    AES-192-ECB
+    AES-256-ECB
+    AES-128-OCB
+    AES-192-OCB
+    AES-256-OCB
+    CAMELLIA-128
+    CAMELLIA-192
+    CAMELLIA-256
+    CAMELLIA-128-CFB
+    CAMELLIA-192-CFB
+    CAMELLIA-256-CFB
+    CAMELLIA-128-CBC
+    CAMELLIA-192-CBC
+    CAMELLIA-256-CBC
+    CAMELLIA-128-ECB
+    CAMELLIA-192-ECB
+    CAMELLIA-256-ECB
+    CAST5
+    DES
+    DES-EDE3
+    TRIPLEDES
+  )
+
+  set(OPENSSL_SUPPORTED_CURVES
+    NIST-P-256
+    NIST-P-384
+    NIST-P-521
+    PRIME256V1
+    SECP384R1
+    SECP521R1
+    SECP256K1
+    CURVE25519
+    X25519
+    ED25519
+  )
+
+  set(OPENSSL_SUPPORTED_PUBLICKEY
+    RSA
+    RSAENCRYPTION
+    DSA
+    DSAENCRYPTION
+    DHKEYAGREEMENT
+    ID-ECPUBLICKEY
+    ELGAMAL
+    ECDSA
+    ECDH
+    EDDSA
+  )
+
+  set(OPENSSL_SUPPORTED_PROVIDERS
+    DEFAULT
+    LEGACY
+  )
+
+  set(OPENSSL_SUPPORTED_FEATURES
+    ${OPENSSL_SUPPORTED_HASHES}
+    ${OPENSSL_SUPPORTED_CIPHERS}
+    ${OPENSSL_SUPPORTED_CURVES}
+    ${OPENSSL_SUPPORTED_PUBLICKEY}
+    ${OPENSSL_SUPPORTED_PROVIDERS}
+  )
+
+  list(LENGTH OPENSSL_SUPPORTED_HASHES hashes_len)
+  list(LENGTH OPENSSL_SUPPORTED_CIPHERS ciphers_len)
+  list(LENGTH OPENSSL_SUPPORTED_CURVES curves_len)
+  list(LENGTH OPENSSL_SUPPORTED_PUBLICKEY publickey_len)
+  list(LENGTH OPENSSL_SUPPORTED_PROVIDERS providers_len)
+else()
+  execute_process(
+    COMMAND "${CMAKE_COMMAND}" "-Bbuild" ${MKF} "."
+    WORKING_DIRECTORY "${_fossl_work_dir}"
+    OUTPUT_VARIABLE output
+    ERROR_VARIABLE error
+    RESULT_VARIABLE result
+    COMMAND_ECHO STDOUT
+    ECHO_OUTPUT_VARIABLE
+    ECHO_ERROR_VARIABLE
+  )
+
+  if (NOT ${result} EQUAL 0)
+    message(FATAL_ERROR "Error configuring findopensslfeatures")
   endif()
 
-  string(TOUPPER ${feature} feature_up)
-  string(TOUPPER ${feature_val} feature_val)
-  string(REPLACE "\n" ";" feature_val ${feature_val})
-  set(OPENSSL_SUPPORTED_${feature_up} ${feature_val})
-  list(LENGTH OPENSSL_SUPPORTED_${feature_up} ${feature}_len)
-  list(APPEND OPENSSL_SUPPORTED_FEATURES ${OPENSSL_SUPPORTED_${feature_up}})
-endforeach()
+  execute_process(
+    COMMAND "${CMAKE_COMMAND}" "--build" "build" --config "Release"
+    WORKING_DIRECTORY "${_fossl_work_dir}"
+    OUTPUT_VARIABLE output
+    ERROR_VARIABLE error
+    RESULT_VARIABLE result
+    COMMAND_ECHO STDOUT
+    ECHO_OUTPUT_VARIABLE
+    ECHO_ERROR_VARIABLE
+  )
+
+  if (NOT ${result} EQUAL 0)
+    message(FATAL_ERROR "Error building findopensslfeatures")
+  endif()
+
+  set(OPENSSL_SUPPORTED_FEATURES "")
+  if(WIN32 AND NOT MINGW)
+    set(FOF "build/Release/findopensslfeatures")
+  else(WIN32 AND NOT MINGW)
+    set(FOF "build/findopensslfeatures")
+  endif(WIN32 AND NOT MINGW)
+
+  foreach(feature "hashes" "ciphers" "curves" "publickey" "providers")
+    execute_process(
+      COMMAND "${FOF}" "${feature}"
+      WORKING_DIRECTORY "${_fossl_work_dir}"
+      OUTPUT_VARIABLE feature_val
+      ERROR_VARIABLE error
+      RESULT_VARIABLE result
+    )
+
+    if(NOT ${result} EQUAL 0)
+      message(FATAL_ERROR "Error getting supported OpenSSL ${feature}: ${result}\n${error}")
+    endif()
+
+    string(TOUPPER ${feature} feature_up)
+    string(TOUPPER ${feature_val} feature_val)
+    string(REPLACE "\n" ";" feature_val ${feature_val})
+    set(OPENSSL_SUPPORTED_${feature_up} ${feature_val})
+    list(LENGTH OPENSSL_SUPPORTED_${feature_up} ${feature}_len)
+    list(APPEND OPENSSL_SUPPORTED_FEATURES ${OPENSSL_SUPPORTED_${feature_up}})
+  endforeach()
+endif()
 
 message(STATUS "Fetched OpenSSL features: ${hashes_len} hashes, ${ciphers_len} ciphers, ${curves_len} curves, ${publickey_len} publickey, ${providers_len} providers.")
 
